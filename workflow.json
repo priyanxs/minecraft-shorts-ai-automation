@@ -1,0 +1,219 @@
+{
+  "name": "Minecraft Shorts AI Automation",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "id": "1",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        200,
+        300
+      ],
+      "webhookId": "tg-mc-shorts-trigger",
+      "credentials": {
+        "telegramApi": {
+          "id": "tgMinecraftBot01",
+          "name": "Minecraft Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "get",
+        "fileId": "={{ $json.message.video ? $json.message.video.file_id : ($json.message.document ? $json.message.document.file_id : '') }}",
+        "additionalFields": {}
+      },
+      "id": "2",
+      "name": "Download Telegram Video",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        420,
+        300
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "tgMinecraftBot01",
+          "name": "Minecraft Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const message = $('Telegram Trigger').item.json.message;\nconst userCaption = message.caption || \"Insane Minecraft build hacks, secrets, and clutch moments\";\n\nconst prompt = `You are an elite Minecraft gaming YouTuber creating viral YouTube Shorts.\nTopic/Context: \"${userCaption}\"\n\nCreate:\n1. \"title\": A viral, high-CTR hook title strictly under 60 characters with emojis ending with \"#Shorts #Minecraft\" (e.g. \"Illegal Minecraft Build Hack! ⛏️ #Shorts #Minecraft\" or \"Bro Escaped With Half a Heart?! 😱 #Shorts #Minecraft\").\n2. \"description\": An exciting, suspenseful 2-sentence caption followed by viral hashtags: #Minecraft #MinecraftShorts #MinecraftBuilds #MinecraftMemes #Shorts #Gaming #Viral.\n3. \"tags\": 6-10 comma-separated keywords (e.g. \"minecraft, minecraft shorts, minecraft builds, minecraft memes, mcpe, minecraft secrets, gaming, viral\").\n\nRespond strictly in valid JSON only with NO markdown and NO extra text:\n{\n  \"title\": \"Your Title Here #Shorts #Minecraft\",\n  \"description\": \"Your description here...\\\\n\\\\n#Minecraft #MinecraftShorts #MinecraftBuilds #MinecraftMemes #Shorts #Gaming #Viral\",\n  \"tags\": \"minecraft, minecraft shorts, minecraft builds, minecraft memes, mcpe, gaming\"\n}`;\n\nreturn {\n  prompt: prompt,\n  userCaption: userCaption,\n  chatId: message.chat.id,\n  messageId: message.message_id\n};"
+      },
+      "id": "3",
+      "name": "Prepare Minecraft Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:11434/api/generate",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={\n  \"model\": \"llama3.2\",\n  \"prompt\": {{ JSON.stringify($json.prompt) }},\n  \"stream\": false,\n  \"format\": \"json\"\n}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "4",
+      "name": "Generate Minecraft Captions with Ollama",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        860,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "let raw = $json.response;\nlet meta = {\n  title: \"Epic Minecraft Secret! ⛏️ #Shorts #Minecraft\",\n  description: \"Can you believe this secret trick?! Try this in your survival world! #Minecraft #MinecraftShorts #MinecraftBuilds #MinecraftMemes #Shorts #Gaming #Viral\",\n  tags: \"minecraft, minecraft shorts, minecraft builds, gaming\"\n};\n\ntry {\n  const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;\n  if (parsed.title) meta.title = parsed.title;\n  if (parsed.description) meta.description = parsed.description;\n  if (parsed.tags) {\n    meta.tags = Array.isArray(parsed.tags) ? parsed.tags.join(',') : String(parsed.tags);\n  }\n} catch(e) {\n  meta.description = raw;\n}\n\nif (!meta.title.toLowerCase().includes('#shorts')) {\n  meta.title = `${meta.title.slice(0, 48)} #Shorts`;\n}\nif (!meta.title.toLowerCase().includes('#minecraft')) {\n  meta.title = `${meta.title} #Minecraft`;\n}\n\nif (Array.isArray(meta.tags)) {\n  meta.tags = meta.tags.join(',');\n}\n\nconst binary = $('Download Telegram Video').item.binary;\n\nreturn {\n  json: {\n    title: meta.title,\n    description: meta.description,\n    tags: String(meta.tags),\n    chatId: $('Prepare Minecraft Prompt').item.json.chatId\n  },\n  binary: binary\n};"
+      },
+      "id": "5",
+      "name": "Format Video Metadata",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1080,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "video",
+        "operation": "upload",
+        "title": "={{ $json.title }}",
+        "binaryProperty": "data",
+        "categoryId": "20",
+        "options": {
+          "description": "={{ $json.description }}",
+          "privacyStatus": "public",
+          "tags": "={{ $json.tags }}"
+        }
+      },
+      "id": "6",
+      "name": "Upload to Minecraft YouTube Channel",
+      "type": "n8n-nodes-base.youTube",
+      "typeVersion": 1,
+      "position": [
+        1300,
+        300
+      ],
+      "credentials": {
+        "youTubeOAuth2Api": {
+          "id": "ytOAuth2Minecraft01",
+          "name": "Minecraft YouTube Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Format Video Metadata').item.json.chatId }}",
+        "text": "=🎮 *Minecraft Short Successfully Uploaded!*\n\n📌 *Title:* {{ $('Format Video Metadata').item.json.title }}\n\n🔗 *Watch:* https://youtube.com/shorts/{{ $json.uploadId || $json.id }}\n\n📝 *Description:*\n{{ $('Format Video Metadata').item.json.description }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "7",
+      "name": "Send Telegram Confirmation",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1520,
+        300
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "tgMinecraftBot01",
+          "name": "Minecraft Telegram Bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Download Telegram Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Telegram Video": {
+      "main": [
+        [
+          {
+            "node": "Prepare Minecraft Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Minecraft Prompt": {
+      "main": [
+        [
+          {
+            "node": "Generate Minecraft Captions with Ollama",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Minecraft Captions with Ollama": {
+      "main": [
+        [
+          {
+            "node": "Format Video Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Video Metadata": {
+      "main": [
+        [
+          {
+            "node": "Upload to Minecraft YouTube Channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload to Minecraft YouTube Channel": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
